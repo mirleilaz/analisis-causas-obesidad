@@ -1,0 +1,302 @@
+---
+title: "Análisis de causas de la obesidad"
+author: "Miranda Leiva Lázaro"
+date: "2024-12-24"
+output: html_document
+---
+
+## Análisis exploratorio de datos y limpieza
+
+El conjunto de datos seleccionado recoge datos sobre hábitos y características físicas de 2111 individos de Colombia, Perú y México.
+
+Instalo las librerías necesarias.
+```{r}
+if (!require(ggplot2)) {
+  install.packages("ggplot2")
+}
+if (!require(dplyr)) {
+  install.packages("dplyr")
+}
+if (!require(maps)) {
+  install.packages("maps")
+}
+if (!require(corrr)) {
+  install.packages("corrr")
+}
+if (!require(ggcorrplot)) {
+  install.packages("ggcorrplot")
+}
+if (!require(FactoMineR)) {
+  install.packages("FactoMineR")
+}
+if (!require(factoextra)) {
+  install.packages("factoextra")
+}
+if (!require(corrr)) {
+  install.packages("corrr")
+}
+if (!require(mltools)) {
+  install.packages("mltools")
+}
+if (!require(data.table)) {
+  install.packages("data.table")
+}
+```
+
+Importo el conjunto de datos.
+```{r}
+df <- read.csv("../data/ObesityDataSet.csv")
+```
+
+Compruebo si hay valores faltantes en alguna de las columnas.
+```{r}
+colSums(is.na(df))
+```
+
+Imprimo el conjunto de datos para ver los nombres de las columnas, sus tipos y la estructura de su contenido.
+```{r}
+head(df)
+```
+
+Algunas columnas contienen decimales que no aportan nada. Cambio el tipo de datos de esas columnas.
+```{r}
+df$Age <- as.integer(df$Age)
+df$Height <- round(df$Height, 2)
+df$Weight <- as.integer(df$Weight)
+df$FCVC <- as.integer(df$FCVC)
+df$NCP <- as.integer(df$NCP)
+df$CH2O <- as.integer(df$CH2O)
+df$FAF <- as.integer(df$FAF)
+df$TUE <- as.integer(df$TUE)
+
+head(df)
+```
+
+
+## Planteamiento de preguntas
+
+El conjunto de datos presenta información como hábitos o características físicas de personas, incluyendo su peso y el nivel de peso al que corresponde (insuficiente. normal, sobrepeso nivel 1, sobrepeso nivel 2, obesidad nivel 1, obesidad nivel 2, obesidad nivel 3). Teniendo todo esto, puedo analizar cómo influye cada uno de los datos sobre las personas en su composición corporal, con el objetivo de que el público general pueda tomar acciones sobre aquellas condiciones y hábitos de vida sobre los que tenga capacidad de cambio y decisión.
+
+Igual de relevante que encontrar los factores más relacionados con la composición corporal, lo es encontrar los que influyen de manera mínima, para descartar mitos. El exceso de información sobre métodos de adelgazamiento ha dado lugar a relatos sin respaldo científico, que pueden ser confrontados mostrando el poco o nulo peso que tienen.
+
+
+## Matriz de correlación y selección de variables
+
+Dado que el conjunto de datos contiene muchas variables, voy a dibujar una matriz de correlación que analizaré para encontrar las que más influyen sobre la categoría de peso de los individuos.
+
+Comienzo creando una copia del conjunto de datos que albergará las variables factorizadas.
+```{r}
+df_2 <- df
+```
+
+Para poder normalizar los datos, factorizo las categorías de peso, dando un número mayor cuanto mayor es el peso. Guardo el resultado en una nueva columna y elimino la original. La columna resultado, "Weight_level", será la variable objetivo de este análisis.
+```{r}
+df_2$TARGET_Weight_level <- factor(df_2$NObeyesdad, levels = c(
+  "Insufficient_Weight", "Normal_Weight", "Overweight_Level_I",
+  "Overweight_Level_II", "Obesity_Type_I", "Obesity_Type_II",
+  "Obesity_Type_III"), labels = 0:6
+)
+
+df_2$NObeyesdad <- NULL
+```
+
+Algunas variables categóricas pueden transformarse en factores directamente. Las transformo dejando sus nombres originales.
+```{r}
+df_2$family_history_with_overweight <- factor(df_2$family_history_with_overweight,
+  levels = c("no", "yes"), labels = 0, 1)
+
+df_2$FAVC <- factor(df_2$FAVC, levels = c("no", "yes"), labels = 0, 1)
+
+df_2$CAEC <- factor(df_2$CAEC, levels = c("no", "Sometimes", "Frequently",
+  "Always"), labels = 0:3)
+
+df_2$SMOKE <- factor(df_2$SMOKE, levels = c("no", "yes"), labels = 0, 1)
+
+df_2$SCC <- factor(df_2$SCC, levels = c("no", "yes"), labels = 0, 1)
+
+df_2$CALC <- factor(df_2$CALC, levels = c("no", "Sometimes", "Frequently",
+  "Always"), labels = 0:3)
+```
+
+Aplico el método del one-hot encoding (codificación en caliente) creando variables de tipo "dummy" a partir de la variable categórica que incluye el medio de transporte ("MTRANS"), y la que incluye el género ("Gender").
+```{r}
+library(dplyr)
+
+dummy_vars <- model.matrix(~ Gender + MTRANS - 1, data = df_2) %>%
+  as.data.frame()
+
+df_2 <- df_2 %>%
+  select(-Gender, -MTRANS) %>%
+  bind_cols(dummy_vars)
+            
+head(df_2)
+```
+
+Convierto todas las columnas de tipo factor a numéricas para poder normalizarlas.
+```{r}
+df_2 <- df_2 %>%
+  mutate(across(where(is.factor), as.integer))
+
+head(df_2)
+```
+
+Normalizo las columnas para que todas tengan el mismo peso en la variable objetivo.
+```{r}
+#df_norm <- df_2 %>%
+  #mutate(across(where(is.numeric), scale))
+
+
+df_norm <- as.data.frame(scale(df_2))
+
+head(df_norm)
+```
+
+Muevo la variable objetivo a la última posición para diferenciarla más fácilmente.
+```{r}
+df_norm <- df_norm %>%
+  select(-TARGET_Weight_level, everything(), TARGET_Weight_level)
+```
+
+Dibujo una matriz de correlación para encontrar las variables que más influyen en la variable objetivo "Weight_level".
+```{r}
+library("ggcorrplot")
+
+corr_matrix <- cor(df_norm %>% select(where(is.numeric)))
+ggcorrplot(corr_matrix)
+```
+Aunque ya puedo empezar a apreciar el resultado, hay demasiadas variables a analizar. Voy a ordenarlas por correlación en valor absoluto con la variable objetivo "TARGET_Weight_level" para seleccionar las más relevantes.
+```{r}
+corr_matrix_target <- corr_matrix[, "TARGET_Weight_level"]
+corr_matrix_target_sorted <- sort(abs(corr_matrix_target), decreasing = TRUE)
+
+print(corr_matrix_target_sorted)
+```
+La primera variable es la propia variable objetivo, y la segunda es el peso (a partir del cual se construye la variable objetivo de nivel de peso), por tanto las ignoro. Las siguientes en importancia son los antecedentes familiares de sobrepeso (0.5), el consumo de alimentos entre comidas principales o CAEC (0.33), el tiempo de uso de aparatos tecnológicos o TUE (0.30), la frecuencia de actividad física o FAF (0.29), la edad (0.27) y el  consumo de comida hipercalórica o FAVC (0.25). El resto de variables aportan menos peso (aproximadamente 0.2 como mucho), así que no me parecen ya relevantes para buscar patrones.
+
+Por orden de menor peso sobre la variable objetivo, tenemos el hecho de que la perfuma fume o no, el consumo diario de agua o CH2O, el género, el método de transporte y el número de comidas principales o NCP. Exceptuando el uso de transporte público como medio habitual (0.09), la cual puede tener una influencia muy ligera, todas estas variables muestran a lo sumo una influencia de 0.05, insuficiente para que puedan considerarse explicativas de un mayor o menor nivel de peso.
+
+
+Compruebo si las variables seleccionadas como las más relevantes contribuyen de forma positiva (aumento de peso) o negativa (disminución de peso) sobre la variable objetivo.
+```{r}
+corr_matrix_target[c("family_history_with_overweight", "CAEC", "TUE", "FAF", "Age", "FAVC")]
+```
+Del resultado se concluye que las siguientes características están asociadas en el siguiente orden de relevancia con un mayor nivel de peso en los individuos: Tener antecedentes familiares de sobrepeso, ser más mayor y consumir alimentos hipercalóricos. Por el contrario, parece influir en un menor peso: consumir alimentos entre comidas principales más a menudo, usar aparatos tecnológicos durante más tiempo y realizar actividad física más a menudo.
+
+## Gráficos estadísticos
+
+Voy a crear visualizaciones para representar de forma clara y atractiva las conclusiones del análisis que he realizado en el apartado anterior.
+
+El siguiente gráfico de barras permite apreciar la diferencia en la influencia sobre el nivel de peso entre las correlaciones más importantes, y las menos. De esta forma, se demuestra que algunas características son irrelevantes, mientras otras influyen en gran medida.
+```{r}
+df_3 <- data.frame(
+  Variable=c(
+    "family_history_with_overweight", "CAEC", "TUE", "FAF", "Age", "FAVC",
+    "SMOKE", "CH2O", "GenderFemale", "GenderMale", "MTRANSBike",
+    "MTRANSMotorbike", "NCP", "MTRANSPublic_Transportation"
+  ),
+  Correlation = corr_matrix_target[c(
+    "family_history_with_overweight", "CAEC", "TUE", "FAF", "Age", "FAVC",
+    "SMOKE", "CH2O", "GenderFemale", "GenderMale", "MTRANSBike",
+    "MTRANSMotorbike", "NCP", "MTRANSPublic_Transportation"
+  )],
+  Group=c(
+    rep("Muy influyente", 6),
+    rep("Irrelevante", 8)
+  )
+)
+
+df_3$VariableLabel <- c(
+  "Antecedentes familiares de sobrepeso", "Frecuencia de consumo entre comidas",
+  "Tiempo de uso de aparatos tecnológicos", "Frecuencia de actividad física",
+  "Edad", "Consumo de comida hipercalórica", "Fumar", "Consumo de
+  agua", "Ser mujer", "Ser hombre", "Bici como transporte principal", "Moto como
+  transporte principal", "Número de comidas principales", "Transporte público 
+  como medio principal"
+)
+
+ggplot(df_3, aes(x=reorder(VariableLabel, Correlation), y=Correlation,
+  fill=Group)) + geom_bar(stat="identity") + coord_flip() + labs(
+    title = "Influencias sobre la composición corporal",
+    x="Hábitos y características físicas",
+    y="Diferencia en el peso (de -1 a 1)"
+  ) + scale_fill_manual(values=c("Muy influyente"="#458B74", "Irrelevante"=
+  "lightgray"), guide="none") + theme_minimal() + theme(plot.title=element_text
+  (size=16), plot.title.position="plot")
+```
+El resultado entierra mitos tan populares y extendidos como que beber mucha agua ayuda a adelgazar, que fumar engorda o que usar un medio de transporte principal activo (como ir en bici) es decisivo (nótese que en concreto, usar principalmente transporte público tiene una muy leve influencia, pero para nada decisiva). También observamos que no hay una diferencia apreciable entre mujeres y hombres. De hecho, en el improbable caso de que la enana representación de las variables dibujadas en gris tengan una verdadera relación con el nivel de peso (y no sean meras casualidades estadísticas), el sutil menor consumo de agua con menor peso podría deberse a que a mayor actividad física, mayor consumo de agua, y las sutiles diferencias entre géneros podrían deberse a factores culturales de Colombia, Perú y México. Comprobar la veracidad de estas suposiciones queda fuera del alcance de este análisis.
+
+Un dato muy revelador es que a mayor frecuencia de consumo entre comidas, y a mayor uso de tecnología, menor será el nivel de peso. Yo relaciono esto con la frecuencia de actividad física y la edad, e intuyo que esto sucede porque los individuos jóvenes suelen usar más los aparatos tecnológicos, y estos son los que menos tienden a tener un nivel de peso alto; además, los deportistas suelen consumir alimentos entre comidas principales, así que esto tambíén podría estar influyendo. 
+
+
+La variable que más importancia ha resultado tener son los antecedentes familiares. Al ser binaria, puedo visualizar su relación con el nivel de peso mediante un diagrama de caja.
+Recordemos los niveles de peso:
+1. Insuficiente
+2. Normal
+3. Sobrepeso nivel 1
+4. Sobrepeso nivel 2
+5. Obesidad nivel 1
+6. Obesidad nivel 2
+7. Obesidad nivel 3
+```{r}
+ggplot(df_2, aes(x=as.factor(family_history_with_overweight), 
+  y=TARGET_Weight_level)) +
+  geom_boxplot(fill="#458B74", color="black") +
+  labs(
+    title="Relación entre composición corporal y antecedentes familiares de
+     obesidad",
+    y="Nivel de peso"
+  ) +
+  scale_x_discrete(labels=c("1"="Sin antecedentes", "2"="Con antecedentes")
+  ) +
+  scale_y_continuous(breaks=0:6, labels=c("Insuficiente", "Normal", "Sobrepeso  
+  nivel 1", "Sobrepeso nivel 2", "Obesidad nivel 1", "Obesidad nivel 2",
+  "Obesidad nivel 3"), limits=c(1, 7)) + theme_minimal() +theme(axis.title.x=
+  element_blank(), plot.title=element_text(size=15), plot.title.position="plot")
+```
+El resultado revela una evidencia abrumadora: la mediana de los datos de individuos con antecedentes familiares de obesidad se sitúa sobre el nivel de peso de "obesidad nivel 2", lo que revela que lo más habitual es que las personas con obesidad tengan familiares con obesidad. Queda fuera del alcance de este estudio y sería muy interesante comprobar si esto se debe a la genética, a los hábitos alimenticios heredados, a una mezcla de ambos u a otros factores menos obvios.
+Por otro lado, entre las personas sin antecedentes familiares la mediana se sitúa en el nivel de peso de "sobrepeso nivel 1", lo que revela que incluso entre los individuos sin antecedentes familiares, la tendencia es al sobrepeso.
+
+
+
+
+La segunda variable en importancia es la frecuencia de consumo de alimentos entre comidas principales, y al ser categórica se puede mostrar también mediante un diagrama de caja.
+```{r}
+ggplot(df_2, aes(x=as.factor(CAEC), 
+  y=TARGET_Weight_level)) +
+  geom_boxplot(fill="#458B74", color="black") +
+  labs(
+    title="Relación entre composición corporal y consumo de alimentos entre
+    comidas", y="Nivel de peso"
+  ) +
+  scale_x_discrete(labels=c("1"="Nunca", "2"="A veces",
+  "3"="Con frecuencia", "4"="Siempre")
+  ) +
+  scale_y_continuous(breaks=0:6, labels=c("Insuficiente", "Normal", "Sobrepeso  
+  nivel 1", "Sobrepeso nivel 2", "Obesidad nivel 1", "Obesidad nivel 2",
+  "Obesidad nivel 3"), limits=c(1, 7)) + theme_minimal() +theme(axis.title.x=
+  element_blank(), plot.title=element_text(size=15), plot.title.position="plot")
+```
+El resultado es bastante inesperado: los individuos que declaraban consumir alimentos entre comidas principales de vez en cuando, tienen un nivel de peso muy superior al resto, siendo lo más habitual que tengan obesidad de nivel 2. Los que nunca lo hacían tenían valores también relativamente elevados, aunque con mucha diferencia. Por el contrario, los que consumían con frecuencia o siempre mostraban niveles de peso relativamente inferiories, con los individuos que consumían con frecuencia teniendo valores dentro del normopeso o peso normal, y aquellos que comían siempre, dentro del sobrepeso nivel 1, con el comienzo exacto del nivel como mediana.
+
+
+
+Las siguientes en importancia son los antecedentes familiares de sobrepeso (0.5), el consumo de alimentos entre comidas principales o CAEC (0.33), el tiempo de uso de aparatos tecnológicos o TUE (0.30), la frecuencia de actividad física o FAF (0.29), la edad (0.27) y el consumo de comida hipercalórica o FAVC (0.25).
+
+
+
+Otras variables han demostrado tener influencia sobre el nivel de peso, pero no se han incluido en este análisis porque el foco era contestar a las preguntas: cuáles son las variables más influyentes sobre el nivel de peso y de qué forma influyen, y qué variables influyen muy levemente o en absoluto y por tanto no deberían ser el foco de atención en estrategias de adelgazamiento.
+
+Los resultados del análisis demuestran la preocupante prevalencia del sobrepeso y la obesidad en los países estudiados (Colombia, Perú y México). Aunque no lo abordaré en este análisis, sería interesante comprobar si estos valores tan elevados se dan también en otros países.
+
+
+## Fuentes
+- Obesity based on eating habits & physical cond. (2025). Disponible en: https://www.kaggle.com/datasets/ankurbajaj9/obesity-levels/data
+- Pandas DataFrame (2025). Disponible en: https://www.geeksforgeeks.org/python-pandas-dataframe/
+- factor: Factors (2025). Disponible en: https://www.rdocumentation.org/packages/base/versions/3.6.2/topics/factor
+- Tutorial de análisis de componentes principales en R (2025). Disponible en: https://www.datacamp.com/es/tutorial/pca-analysis-r
+- One-hot encoding in R: three simple methods (2025). Disponible en: https://datatricks.co.uk/one-hot-encoding-in-r-three-simple-methods
+- R - How to one hot encoding a single column while keep other columns still? (2025). Disponible en: https://stackoverflow.com/questions/52539750/r-how-to-one-hot-encoding-a-single-column-while-keep-other-columns-still
+- How to R Convert Factor to Numeric in R? (2025). Disponible en: https://sparkbyexamples.com/r-programming/r-convert-factor-to-numeric-in-r/#:~:text=Convert%20Factor%20to%20Numeric%20With,column%20converted%20from%20the%20factor.
+- Principal Component Analysis (PCA) in R (2025). Disponible en: https://www.youtube.com/watch?v=jFN4qkSOd4I
+- Funcion ggplot() de ggplot2 (2025). Disponible en: https://rpubs.com/daniballari/ggplot
+- RCHARTS COLORS (2025). Disponible en: https://r-charts.com/colors/
